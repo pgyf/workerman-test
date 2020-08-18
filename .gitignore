@@ -1,0 +1,7 @@
+/nbproject
+/.idea
+/.vscode
+/vendor
+*.log
+.env
+test.php

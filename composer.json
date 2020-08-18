@@ -1,0 +1,9 @@
+{
+    "name": "phpyii/workerman-test",
+    "type": "project",
+    "keywords": ["workerman-test", "workerman", "tcp", "udp", "http"],
+    "license": "",
+    "require": {
+        "workerman/workerman": "4.0.7"
+    }
+}
