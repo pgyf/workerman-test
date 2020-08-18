@@ -169,8 +169,8 @@ class Util {
      * @param string $txt
      * @param string $br
      */
-    public static function echoText($txt, $br = "\r\n") {
-        echo $txt . $br;
+    public static function echoText($txt, $br = PHP_EOL) {
+        echo   '[' . date('Y-m-d H:i:s') . ']' . '-' . $txt . $br;
     }
     
 }

@@ -18,10 +18,9 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/../../Autoloader.php';
 spl_autoload_register(['Autoloader', 'autoload'], true, true);
 //读取配置
-Config::$config = require(__DIR__ . '/../../config/udp.php');
+Config::$config = require(__DIR__ . '/../../config/tcp.php');
 
 // worker 任务进程
-$work = new core\work\UdpWorker(Config::get('udp'));
+$work = new core\work\TcpWorker(Config::get('tcp'));
 $work->apiConfig = Config::get('api');
-$work->client_port = Config::get('client_port');
 Worker::runAll();

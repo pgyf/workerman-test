@@ -3,23 +3,23 @@
 namespace core\work;
 
 use Workerman\Worker;
-use Workerman\Connection\AsyncUdpConnection;
 use Workerman\Protocols\Http\Response;
 use core\common\Util;
+use Workerman\Lib\Timer;
 
 /**
- * Description of UdpWorker
+ * Description of TcpWorker
  * 给udp客户端发送消息
  * @author phpyii
  */
-class UdpWorker extends Worker {
+class TcpWorker extends Worker {
 
     /**
      * Name of the worker processes.
      *
      * @var string
      */
-    public $name = 'UdpWorker';
+    public $name = 'TcpWorker';
 
     /**
      * reloadable.
@@ -28,6 +28,14 @@ class UdpWorker extends Worker {
      */
     public $reloadable = false;
 
+    /**
+     * 心跳时间
+     *
+     * @var int
+     */
+    public $keepAliveTimeout = 60;
+    
+    
     /**
      * api配置
      *
@@ -41,17 +49,15 @@ class UdpWorker extends Worker {
 
     /**
      * 所有的客户端链接
-     *
      * @var array
      */
     protected $_clients = [];
-
+    
     /**
-     * 所有的客户端链接
-     *
+     * 所有的客户端信息
      * @var array
      */
-    public $client_port = 17000;
+    protected $_clientData = [];
     
     /**
      * 构造函数
@@ -61,6 +67,8 @@ class UdpWorker extends Worker {
      */
     public function __construct($socket_name, $context_option = []) {
         parent::__construct($socket_name, $context_option);
+        $this->onConnect = [$this, 'onClientConnect'];
+        $this->onClose   = [$this, 'onClientClose'];
         $this->onMessage = [$this, 'onClientMessage'];
         $this->onWorkerStart = [$this, 'onStart'];
     }
@@ -76,7 +84,56 @@ class UdpWorker extends Worker {
         }
         $apiWorker->onMessage = [$this, 'onApiClientMessage'];
         $apiWorker->listen();
+        Timer::add($this->keepAliveTimeout/2, [$this, 'checkHeartbeat']);
     }
+
+    /**
+     * 客户端连接后
+     * @param \Workerman\Connection\TcpConnection $connection
+     */
+    public function onClientConnect($connection) {
+        $connection->clientNotSendPingCount = 0;
+        Util::echoText('onClientConnect 来自'. $connection->getRemoteIp());
+        //var_dump($connection);
+    }
+    
+    /**
+     * 客户端关闭链接时
+     * @param \Workerman\Connection\TcpConnection $connection
+     */
+    public function onClientClose($connection)
+    {
+        Util::echoText('onClientClose 来自'. $connection->getRemoteIp());
+        if (!isset($connection->client_id)) {
+            return;
+        }
+        Util::echoText('关闭客户端 '. $connection->client_id);
+    }
+    
+    
+    /**
+     * 检查心跳，将心跳超时的客户端关闭
+     *
+     * @return void
+     */
+    public function checkHeartbeat()
+    {
+        Util::echoText('心跳检测');
+        $closeClients = [];
+        foreach ($this->_clients as $k => $connection) {
+            if ($connection->clientNotSendPingCount > 1) {
+                $connection->destroy();
+                $closeClients[] = $k;
+                Util::echoText('关闭客户端 ip:'. $connection->getRemoteIp());
+            }
+            $connection->clientNotSendPingCount ++;
+        }
+        foreach ($closeClients as $k) {
+            unset($this->_clients[$k]);
+        }
+    }
+
+    
 
     /**
      * 客户端发来消息时
@@ -87,13 +144,21 @@ class UdpWorker extends Worker {
     public function onClientMessage($connection, $message) {
         // debug
         Util::echoText($message . ' 来自'. $connection->getRemoteIp());
-        $data = Util::jsonDecode($data);
-        if (!empty($data)) {
+        $data = Util::jsonDecode($message);
+        if (empty($data)) {
             return;
         }
+        $connection->clientNotSendPingCount = 0;
+        //验证数据的签名安全
         $event = $data['event'];
         switch ($event) {
-            case ':ping':
+            case 'handshake':
+                $connection->client_id = $data['client_id'];
+                $this->_clients[$data['client_id']] = $connection;
+                $this->_clientData[$data['client_id']] = ['client_id' => $data['client_id'], 'device' => $data['device']];
+                $connection->send('{"event":"handshake", "timeout": ' .$this->keepAliveTimeout. ',"data":"{}"}');
+                return;
+            case 'ping':
                 $connection->send('{"event":"pong","data":"{}"}');
                 return;
         }
@@ -151,9 +216,6 @@ class UdpWorker extends Worker {
                 $event = $path_info['event'];
                 Util::echoText('事件：' . $event);
                 switch ($event) {
-                    case 'add_client':
-                        $this->_clients[$requestData['client_id']] = ['ip' => $requestData['ip'], 'device' => $requestData['device'], 'client_id' => $requestData['client_id']];
-                        break;
                     case 'send_client':
                         $this->sendClient($requestData['client_id'], $requestData['data']);
                         break;
@@ -170,18 +232,9 @@ class UdpWorker extends Worker {
 
     public function sendClient($client_id, $data) {
         if(isset($this->_clients[$client_id])){
-            $udp_connection = new AsyncUdpConnection('udp://'. $this->_clients[$client_id]['ip'] .':'. $this->client_port);
-            $udp_connection->onConnect = function($udp_connection) use ($data){
-                $udp_connection->send(json_encode($data));
-            };
-            $udp_connection->onMessage = function($udp_connection, $data) {
-                // 收到服务端返回的数据就关闭连接
-                //echo "recv $data\r\n";
-                Util::echoText('响应后关闭udp连接');
-                // 关闭连接
-                $udp_connection->close();
-            };
-            $udp_connection->connect();
+            $tcp_connection = $this->_clients[$client_id];
+            $tcp_connection->clientNotSendPingCount = 0;
+            $tcp_connection->send(json_encode($data));
         }
     }
 
@@ -191,9 +244,9 @@ class UdpWorker extends Worker {
      * @param string $device
      */
     public function sendClientAll($data, $device = 'all') {
-        foreach ($this->_clients as $client) {
-            if ($device == 'all' || $client['device'] == $device) {
-                $this->sendClient($client['client_id'], $data);
+        foreach ($this->_clients as $client_id => $client) {
+            if ($device == 'all' || $this->_clientData[$client_id]['device'] == $device) {
+                $this->sendClient($client_id, $data);
             }
         }
     }
