@@ -2,7 +2,7 @@
 
 /**
  * run with command 
- * php start.php start
+ * php server.php start
  */
 ini_set('display_errors', 'on');
 

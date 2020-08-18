@@ -1,7 +1,7 @@
 <?php
 /**
  * run with command 
- * php start.php start
+ * php client.php start
  */
 ini_set('display_errors', 'on');
 

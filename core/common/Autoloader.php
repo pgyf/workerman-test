@@ -5,7 +5,7 @@ namespace core\common;
 /**
  * Description of autoload
  *
- * @author Administrator
+ * @author phpyii
  */
 class Autoloader {
 

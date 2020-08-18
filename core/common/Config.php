@@ -5,7 +5,7 @@ namespace core\common;
 /**
  * Description of Config
  *
- * @author Administrator
+ * @author phpyii
  */
 class Config {
     

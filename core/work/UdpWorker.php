@@ -91,6 +91,7 @@ class UdpWorker extends Worker {
         if (!empty($data)) {
             return;
         }
+        //验证数据的签名安全
         $event = $data['event'];
         switch ($event) {
             case ':ping':
