@@ -158,7 +158,7 @@ class Util {
             try {
                 return json_decode($json, true);
             } catch (\Exception $exc) {
-                errorLog($exc->getMessage());
+                //errorLog($exc->getMessage());
             }
         }
         return $default;

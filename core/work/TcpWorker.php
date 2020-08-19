@@ -3,9 +3,10 @@
 namespace core\work;
 
 use Workerman\Worker;
-use Workerman\Protocols\Http\Response;
 use core\common\Util;
 use Workerman\Lib\Timer;
+use Workerman\Connection\TcpConnection;
+use core\common\ApiResponse;
 
 /**
  * Description of TcpWorker
@@ -34,8 +35,7 @@ class TcpWorker extends Worker {
      * @var int
      */
     public $keepAliveTimeout = 60;
-    
-    
+
     /**
      * api配置
      *
@@ -48,17 +48,25 @@ class TcpWorker extends Worker {
     ];
 
     /**
-     * 所有的客户端链接
+     * 验证的客户端链接  客户端id和连接id的映射关系
+     * uid => [ connection_id1=> [], connection_id2 => []]
      * @var array
      */
-    protected $_clients = [];
-    
+    protected $_uids = [];
+
     /**
-     * 所有的客户端信息
+     * 客户端信息
      * @var array
      */
-    protected $_clientData = [];
-    
+    protected $_uidData = [];
+
+    /**
+     * 所有连接id和客户端id的映射关系
+     * connection_id => ['uid' => '', 'not_ping_count' => 0]
+     * @var array
+     */
+    protected $_connIdToUids = [];
+
     /**
      * 构造函数
      *
@@ -68,7 +76,7 @@ class TcpWorker extends Worker {
     public function __construct($socket_name, $context_option = []) {
         parent::__construct($socket_name, $context_option);
         $this->onConnect = [$this, 'onClientConnect'];
-        $this->onClose   = [$this, 'onClientClose'];
+        $this->onClose = [$this, 'onClientClose'];
         $this->onMessage = [$this, 'onClientMessage'];
         $this->onWorkerStart = [$this, 'onStart'];
     }
@@ -84,7 +92,7 @@ class TcpWorker extends Worker {
         }
         $apiWorker->onMessage = [$this, 'onApiClientMessage'];
         $apiWorker->listen();
-        Timer::add($this->keepAliveTimeout/2, [$this, 'checkHeartbeat']);
+        Timer::add($this->keepAliveTimeout / 2, [$this, 'checkHeartbeat']);
     }
 
     /**
@@ -92,48 +100,22 @@ class TcpWorker extends Worker {
      * @param \Workerman\Connection\TcpConnection $connection
      */
     public function onClientConnect($connection) {
-        $connection->clientNotSendPingCount = 0;
-        Util::echoText('onClientConnect 来自'. $connection->getRemoteIp());
-        //var_dump($connection);
+        Util::echoText('onClientConnect' . ' id:' . $connection->id . ' ip:' . $connection->getRemoteIp());
+        $this->_connIdToClientIds[$connection->id] = ['uid' => '', 'not_ping_count' => 0];
     }
-    
+
     /**
      * 客户端关闭链接时
      * @param \Workerman\Connection\TcpConnection $connection
      */
-    public function onClientClose($connection)
-    {
-        Util::echoText('onClientClose 来自'. $connection->getRemoteIp());
-        if (!isset($connection->client_id)) {
-            return;
+    public function onClientClose($connection) {
+        Util::echoText('onClientClose' . ' id:' . $connection->id . ' ip:' . $connection->getRemoteIp());
+        $uid = '';
+        if(isset($connection->uid)){
+            $uid = $connection->uid;
         }
-        Util::echoText('关闭客户端 '. $connection->client_id);
+        $this->clearConnection($connection->id, $uid);
     }
-    
-    
-    /**
-     * 检查心跳，将心跳超时的客户端关闭
-     *
-     * @return void
-     */
-    public function checkHeartbeat()
-    {
-        Util::echoText('心跳检测');
-        $closeClients = [];
-        foreach ($this->_clients as $k => $connection) {
-            if ($connection->clientNotSendPingCount > 1) {
-                $connection->destroy();
-                $closeClients[] = $k;
-                Util::echoText('关闭客户端 ip:'. $connection->getRemoteIp());
-            }
-            $connection->clientNotSendPingCount ++;
-        }
-        foreach ($closeClients as $k) {
-            unset($this->_clients[$k]);
-        }
-    }
-
-    
 
     /**
      * 客户端发来消息时
@@ -143,30 +125,40 @@ class TcpWorker extends Worker {
      */
     public function onClientMessage($connection, $message) {
         // debug
-        Util::echoText($message . ' 来自'. $connection->getRemoteIp());
+        Util::echoText($message . ' id:' . $connection->id . ' ip:' . $connection->getRemoteIp());
         $data = Util::jsonDecode($message);
-        if (empty($data)) {
+        if (empty($data) || empty($data['event'])) {
+            $connection->send(ApiResponse::resError(['errmsg' => 'forbidden', 'statusCode' => 403]));
             return;
         }
-        $connection->clientNotSendPingCount = 0;
-        //验证数据的签名安全
+        //验证数据的签名安全（自己实现）
+        
+        if(isset($this->_connIdToClientIds[$connection->id])){
+            //将次数设置为0
+            $this->_connIdToClientIds[$connection->id]['not_ping_count'] = 0;
+        }
         $event = $data['event'];
         switch ($event) {
             case 'handshake':
-                $connection->client_id = $data['client_id'];
-                $this->_clients[$data['client_id']] = $connection;
-                $this->_clientData[$data['client_id']] = ['client_id' => $data['client_id'], 'device' => $data['device']];
-                $connection->send('{"event":"handshake", "timeout": ' .$this->keepAliveTimeout. ',"data":"{}"}');
+                $connection->uid = $data['uid'];
+                $this->_uids[$data['uid']][$connection->id] = ['device' => $data['device']];
+                $this->_connIdToClientIds[$connection->id] = ['uid' => $data['uid'], 'not_ping_count' => 0];
+                //保存一些用户信息
+                //$this->_clientData[$data['uid']] = ['uid' => $data['uid'], 'device' => $data['device']];
+                $connection->send(ApiResponse::resSuccess(['data' => ['event' => 'handshake', 'timeout' => $this->keepAliveTimeout]]));
                 return;
             case 'ping':
-                $connection->send('{"event":"pong","data":"{}"}');
+                if(!isset($this->_connIdToClientIds[$connection->id])){
+                    $connection->send(ApiResponse::resError(['errmsg' => 'unauthorized', 'statusCode' => 401]));
+                }
+                $connection->send(ApiResponse::resSuccess(['data' => ['event' => 'pong', 'timeout' => $this->keepAliveTimeout]]));
                 return;
         }
     }
 
     /**
      * 来自http消息
-     * http://127.0.0.1:1080/event/add_client
+     * http://127.0.0.1:1080/event/send_user
      * @param \Workerman\Connection\TcpConnection $connection
      * @param \Workerman\Protocols\Http\Request $request
      * @return type
@@ -180,9 +172,8 @@ class TcpWorker extends Worker {
             if (empty($requestData)) {
                 $requestData = $request->rawBody();
             }
-        }
-        else{
-           $requestData = $request->get(); 
+        } else {
+            $requestData = $request->get();
         }
         $path = $request->path();
         $explode = explode('/', $path);
@@ -206,8 +197,7 @@ class TcpWorker extends Worker {
         if (isset($path_info['event'])) {
             $eventType = 'event';
             if (empty($requestData)) {
-                $response = new Response(400, [] , 'Bad Request');
-                return $connection->send($response);
+                return $connection->send(ApiResponse::resError(['statusCode' => 400, 'errmsg' => 'bad request']));
             }
         }
         //验证签名安全处理等省略
@@ -216,39 +206,110 @@ class TcpWorker extends Worker {
                 $event = $path_info['event'];
                 Util::echoText('事件：' . $event);
                 switch ($event) {
-                    case 'send_client':
-                        $this->sendClient($requestData['client_id'], $requestData['data']);
+                    case 'send_user':
+                        $this->sendUser($requestData['uid'], $requestData['data']);
                         break;
-                    case 'send_client_all':
-                        $this->sendClientAll($requestData['data'], $requestData['device'] ?? 'all');
+                    case 'send_user_all':
+                        $this->sendUserAll($requestData['data'], $requestData['device'] ?? 'all');
                         break;
                 }
-                return $connection->send('{"status": 200,"errcode": 0,"errmsg":"", "data": "{}"}');
+                return $connection->send(ApiResponse::resSuccess());
             default :
-                $response = new Response(400, [] , 'Bad Request');
-                return $connection->send($response);
-        }
-    }
-
-    public function sendClient($client_id, $data) {
-        if(isset($this->_clients[$client_id])){
-            $tcp_connection = $this->_clients[$client_id];
-            $tcp_connection->clientNotSendPingCount = 0;
-            $tcp_connection->send(json_encode($data));
+                return $connection->send(ApiResponse::resError(['statusCode' => 400, 'errmsg' => 'bad request']));
         }
     }
 
     /**
-     * 发送给所有客户端
-     * @param array $data
-     * @param string $device
+     * 给客户端发送消息
+     * @param string $uid  用户id
+     * @param array $data     消息
+     * @param string $device 设备
      */
-    public function sendClientAll($data, $device = 'all') {
-        foreach ($this->_clients as $client_id => $client) {
-            if ($device == 'all' || $this->_clientData[$client_id]['device'] == $device) {
-                $this->sendClient($client_id, $data);
+    public function sendUser($uid, $data, $device = 'all') {
+        if (isset($this->_uids[$uid])) {
+            foreach ($this->_uids[$uid] as $connection_id => $item) {
+                if($device == 'all' || $item['device'] == $device){
+                    if (isset($this->connections[$connection_id])) {
+                        //if(TcpConnection::STATUS_CLOSED != $this->connections[$connection_id]->getStatus()){
+                            $this->connections[$connection_id]->send(json_encode($data));
+                        //}
+                    }
+                    if(isset($this->_connIdToClientIds[$connection_id])){
+                        //发送消息将次数设置为0
+                        $this->_connIdToClientIds[$connection_id]['not_ping_count'] = 0;
+                    }
+                }
             }
         }
     }
 
+    /**
+     * 发送给所有用户
+     * @param array $data 消息
+     * @param string $device 设备
+     */
+    public function sendUserAll($data, $device = 'all') {
+        foreach ($this->_uids as $uid => $connections) {
+            $this->sendUser($uid, $data, $device);
+        }
+    }
+
+
+    /**
+     * 心跳，将心跳超时的客户端关闭
+     * @return void
+     */
+    public function checkHeartbeat() {
+        Util::echoText('心跳检测');
+        // 遍历当前进程所有的客户端连接
+        foreach ($this->connections as $connection) {
+            Util::echoText('心跳检测 ' . ' id:' . $connection->id . ' ip:' . $connection->getRemoteIp());
+            $this->checkConnection($connection);
+        }
+    }
+
+    /**
+     * 检测连接
+     * @param \Workerman\Connection\TcpConnection $connection
+     */
+    public function checkConnection($connection) {
+        if (isset($this->_connIdToClientIds[$connection->id])) {
+            if ($this->_connIdToClientIds[$connection->id]['not_ping_count'] > 1) {
+                $uid = $this->_connIdToClientIds[$connection->id]['uid'];
+                $connection->destroy();
+                $this->clearConnection($connection->id, $uid);
+                Util::echoText('心跳检测 关闭客户端' . ' id:' . $connection->id . ' ip:' . $connection->getRemoteIp());
+            }
+            else{
+                $this->_connIdToClientIds[$connection->id]['not_ping_count'] ++ ;
+            }
+        }
+    }
+
+    /**
+     * 清除连接
+     * @param int $connectionId
+     * @param string $uid
+     */
+    public function clearConnection($connectionId = 0, $uid = '') {
+        //清除连接和uid关系
+        if ($connectionId > 0 && isset($this->_connIdToClientIds[$connectionId])) {
+            if(empty($uid)){
+                $uid = $this->_connIdToClientIds[$connectionId]['uid'];
+            }
+            unset($this->_connIdToClientIds[$connectionId]);
+        }
+        //清除uid和连接关系
+        if (!empty($uid)) {
+            if (!empty($uid) && isset($this->_uids[$uid])) {
+                if(isset($this->_uids[$uid][$connectionId])){
+                    unset($this->_uids[$uid][$connectionId]);
+                }
+            }
+//            if(isset($this->_clientData[$uid])){
+//                unset($this->_clientData[$uid]);
+//            }
+        }
+    }
+    
 }

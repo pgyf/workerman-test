@@ -29,7 +29,7 @@ $worker->onWorkerStart = function($work){
     //异步发送socket消息
     $task_connection = new AsyncTcpConnection('tcp://'. Config::get('tcp_ip') .':' . Config::get('tcp_port'));
     // 发送数据
-    $task_data = ['event' => 'handshake' ,'client_id' => 'abc', 'device' => 'ios'];
+    $task_data = ['event' => 'handshake' ,'uid' => 'abc', 'device' => 'ios'];
     $task_connection->send(json_encode($task_data));
     // 发送数据
 //    $task_data = ['event' => 'ping' ,'client_id' => 'abc'];

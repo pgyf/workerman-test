@@ -6,6 +6,7 @@ use Workerman\Worker;
 use Workerman\Connection\AsyncUdpConnection;
 use Workerman\Protocols\Http\Response;
 use core\common\Util;
+use core\common\ApiResponse;
 
 /**
  * Description of UdpWorker
@@ -95,7 +96,7 @@ class UdpWorker extends Worker {
         $event = $data['event'];
         switch ($event) {
             case ':ping':
-                $connection->send('{"event":"pong","data":"{}"}');
+                $connection->send(ApiResponse::resSuccess(['data' => ['event' => 'pong']]));
                 return;
         }
     }
@@ -142,8 +143,7 @@ class UdpWorker extends Worker {
         if (isset($path_info['event'])) {
             $eventType = 'event';
             if (empty($requestData)) {
-                $response = new Response(400, [] , 'Bad Request');
-                return $connection->send($response);
+                return $connection->send(ApiResponse::resError(['statusCode' => 400, 'errmsg' => 'bad request']));
             }
         }
         //验证签名安全处理等省略
@@ -162,10 +162,9 @@ class UdpWorker extends Worker {
                         $this->sendClientAll($requestData['data'], $requestData['device'] ?? 'all');
                         break;
                 }
-                return $connection->send('{"status": 200,"errcode": 0,"errmsg":"", "data": "{}"}');
+                return;
             default :
-                $response = new Response(400, [] , 'Bad Request');
-                return $connection->send($response);
+                return $connection->send(ApiResponse::resError(['statusCode' => 400, 'errmsg' => 'bad request']));
         }
     }
 
@@ -173,12 +172,12 @@ class UdpWorker extends Worker {
         if(isset($this->_clients[$client_id])){
             $udp_connection = new AsyncUdpConnection('udp://'. $this->_clients[$client_id]['ip'] .':'. $this->client_port);
             $udp_connection->onConnect = function($udp_connection) use ($data){
-                $udp_connection->send(json_encode($data));
+                $udp_connection->send(ApiResponse::resSuccess(['data' => $data]));
             };
-            $udp_connection->onMessage = function($udp_connection, $data) {
+            $udp_connection->onMessage = function($udp_connection, $message) {
                 // 收到服务端返回的数据就关闭连接
-                //echo "recv $data\r\n";
-                Util::echoText('响应后关闭udp连接');
+                //echo "recv $message\r\n";
+                Util::echoText('收到消息：' . $message . '响应后关闭udp连接');
                 // 关闭连接
                 $udp_connection->close();
             };

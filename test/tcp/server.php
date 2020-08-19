@@ -23,4 +23,5 @@ Config::$config = require(__DIR__ . '/../../config/tcp.php');
 // worker 任务进程
 $work = new core\work\TcpWorker(Config::get('tcp'));
 $work->apiConfig = Config::get('api');
+$work->keepAliveTimeout = Config::get('keep_alive_timeout');
 Worker::runAll();
