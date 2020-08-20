@@ -7,6 +7,7 @@ use Workerman\Connection\AsyncUdpConnection;
 use Workerman\Protocols\Http\Response;
 use core\common\Util;
 use core\common\ApiResponse;
+use core\common\SocketResponse;
 
 /**
  * Description of UdpWorker
@@ -41,19 +42,25 @@ class UdpWorker extends Worker {
     ];
 
     /**
-     * 所有的客户端链接
+     * 所有的客户端
      *
      * @var array
      */
     protected $_clients = [];
 
     /**
-     * 所有的客户端链接
+     * 客户端端口
      *
      * @var array
      */
     public $client_port = 17000;
-    
+
+    /**
+     * 所有的udp连接
+     * @var array
+     */
+    protected $_udpConnections = [];
+
     /**
      * 构造函数
      *
@@ -87,7 +94,7 @@ class UdpWorker extends Worker {
      */
     public function onClientMessage($connection, $message) {
         // debug
-        Util::echoText($message . ' 来自'. $connection->getRemoteIp());
+        Util::echoText($message . ' 来自' . $connection->getRemoteIp());
         $data = Util::jsonDecode($data);
         if (!empty($data)) {
             return;
@@ -96,7 +103,7 @@ class UdpWorker extends Worker {
         $event = $data['event'];
         switch ($event) {
             case ':ping':
-                $connection->send(ApiResponse::resSuccess(['data' => ['event' => 'pong']]));
+                $connection->send(SocketResponse::resSuccess(['data' => ['event' => 'pong']]));
                 return;
         }
     }
@@ -117,9 +124,8 @@ class UdpWorker extends Worker {
             if (empty($requestData)) {
                 $requestData = $request->rawBody();
             }
-        }
-        else{
-           $requestData = $request->get(); 
+        } else {
+            $requestData = $request->get();
         }
         $path = $request->path();
         $explode = explode('/', $path);
@@ -162,26 +168,60 @@ class UdpWorker extends Worker {
                         $this->sendClientAll($requestData['data'], $requestData['device'] ?? 'all');
                         break;
                 }
-                return;
+                return $connection->send(ApiResponse::resSuccess());
             default :
                 return $connection->send(ApiResponse::resError(['statusCode' => 400, 'errmsg' => 'bad request']));
         }
     }
 
+    /**
+     * 发送udp消息
+     * @param string $addr
+     * @param array $data
+     */
+    private function sendUdpData($addr, $data) {
+        
+        if(empty($addr)){
+            return;
+        }
+        if(isset($this->_udpConnections[$addr])){
+            $udpConnection = $this->_udpConnections[$addr];
+        }
+        else{
+            $udpConnection = new AsyncUdpConnection('udp://' . $addr);
+        }
+        Util::echoText('发送消息：'.$addr);
+//        $udpConnection->onConnect = function($udpConnection) use ($data) {
+//            $udpConnection->send(SocketResponse::resSuccess(['data' => $data]));
+//        };
+        $udpConnection->onMessage = function($udpConnection, $message) {
+            // 收到服务端返回的数据就关闭连接
+            //echo "recv $message\r\n";
+            Util::echoText('收到消息：' . $message);
+            // 关闭连接
+            //$udpConnection->close();
+        };
+        if(!isset($this->_udpConnections[$addr])){
+            $this->_udpConnections[$addr] = $udpConnection;
+        }
+        $udpConnection->send(SocketResponse::resSuccess(['data' => $data]));
+    }
+
     public function sendClient($client_id, $data) {
-        if(isset($this->_clients[$client_id])){
-            $udp_connection = new AsyncUdpConnection('udp://'. $this->_clients[$client_id]['ip'] .':'. $this->client_port);
-            $udp_connection->onConnect = function($udp_connection) use ($data){
-                $udp_connection->send(ApiResponse::resSuccess(['data' => $data]));
-            };
-            $udp_connection->onMessage = function($udp_connection, $message) {
-                // 收到服务端返回的数据就关闭连接
-                //echo "recv $message\r\n";
-                Util::echoText('收到消息：' . $message . '响应后关闭udp连接');
-                // 关闭连接
-                $udp_connection->close();
-            };
-            $udp_connection->connect();
+        if (isset($this->_clients[$client_id])) {
+            $this->sendUdpData($this->_clients[$client_id]['ip'] . ':' . $this->client_port, $data);
+//            $udp_connection = new AsyncUdpConnection('udp://' . $this->_clients[$client_id]['ip'] . ':' . $this->client_port);
+//            $udp_connection->onConnect = function($udp_connection) use ($data) {
+//                $udp_connection->send(SocketResponse::resSuccess(['data' => $data]));
+//            };
+//            $udp_connection->onMessage = function($udp_connection, $message) {
+//                // 收到服务端返回的数据就关闭连接
+//                //echo "recv $message\r\n";
+//                Util::echoText('收到消息：' . $message . '响应后关闭udp连接');
+//                // 关闭连接
+//                $udp_connection->close();
+//            };
+//            $udp_connection->connect();
         }
     }
 

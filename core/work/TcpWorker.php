@@ -7,6 +7,7 @@ use core\common\Util;
 use Workerman\Lib\Timer;
 use Workerman\Connection\TcpConnection;
 use core\common\ApiResponse;
+use core\common\SocketResponse;
 
 /**
  * Description of TcpWorker
@@ -119,7 +120,7 @@ class TcpWorker extends Worker {
 
     /**
      * 客户端发来消息时
-     * @param $connection
+     * @param \Workerman\Connection\TcpConnection $connection
      * @param string $message
      * @return void
      */
@@ -197,7 +198,7 @@ class TcpWorker extends Worker {
         if (isset($path_info['event'])) {
             $eventType = 'event';
             if (empty($requestData)) {
-                return $connection->send(ApiResponse::resError(['statusCode' => 400, 'errmsg' => 'bad request']));
+                return $connection->send(SocketResponse::resError(['statusCode' => 400, 'errmsg' => 'bad request']));
             }
         }
         //验证签名安全处理等省略
@@ -213,9 +214,9 @@ class TcpWorker extends Worker {
                         $this->sendUserAll($requestData['data'], $requestData['device'] ?? 'all');
                         break;
                 }
-                return $connection->send(ApiResponse::resSuccess());
+                return $connection->send(SocketResponse::resSuccess());
             default :
-                return $connection->send(ApiResponse::resError(['statusCode' => 400, 'errmsg' => 'bad request']));
+                return $connection->send(SocketResponse::resError(['statusCode' => 400, 'errmsg' => 'bad request']));
         }
     }
 

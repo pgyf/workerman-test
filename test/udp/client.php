@@ -7,6 +7,7 @@ ini_set('display_errors', 'on');
 
 use Workerman\Worker;
 use core\common\Config;
+use core\common\Util;
 
 //定义常量
 define('WORKERMAN_APP_DEBUG', true);
@@ -29,7 +30,7 @@ $udpWorker->onMessage = function($connection, $message){
     //通知接受到了
     $connection->send('ok');
     //打印消息
-    echo $message . ' 来自'. $connection->getRemoteIp() . "\n";
+    Util::echoText($message . ' 来自'. $connection->getRemoteIp());
 };
 // 运行所有服务
 Worker::runAll();

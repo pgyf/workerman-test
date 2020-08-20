@@ -15,25 +15,20 @@ use Workerman\Protocols\Http\Response;
  *
  * @author lyf
  */
-class ApiResponse {
+class SocketResponse {
 
-    private static function resResponse($params = []) {
+    public static function resResponse($params = []) {
         $data = $params['data'] ?? [];
         $msg = $params['errmsg'] ?? '';
         $code = $params['errcode'] ?? 0;
-        $statusCode = $params['statusCode'] ?? 200;
-        if($statusCode != 200){
-            $code = $statusCode;
-        }
-        $headers = $params['headers'] ?? [];
-        $res = ['status' => $statusCode, 'errcode' => $code, 'errmsg' => $msg, 'data' => $data];
+        $res = ['errcode' => $code, 'errmsg' => $msg, 'data' => $data];
         $body = json_encode($res);
-        return new Response($statusCode, $headers, $body);
+        return $body;
     }
 
     public static function resError($params = []) {
         if(!isset($params['errmsg'])){
-            $params['errmsg'] = 'error';
+            $params['errmsg'] = 'fail';
         }
         if(!isset($params['errcode'])){
             $params['errcode'] = -1;
