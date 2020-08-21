@@ -4,17 +4,18 @@ namespace core\work;
 
 use Workerman\Worker;
 use Workerman\Connection\AsyncUdpConnection;
-use Workerman\Protocols\Http\Response;
 use core\common\Util;
 use core\common\ApiResponse;
 use core\common\SocketResponse;
+use Workerman\Lib\Timer;
+use core\common\Config;
 
 /**
  * Description of UdpWorker
  * 给udp客户端发送消息
  * @author phpyii
  */
-class UdpWorker extends Worker {
+class UdpWorker extends BaseWorker {
 
     /**
      * Name of the worker processes.
@@ -60,7 +61,8 @@ class UdpWorker extends Worker {
      * @var array
      */
     protected $_udpConnections = [];
-
+    
+    
     /**
      * 构造函数
      *
@@ -84,8 +86,12 @@ class UdpWorker extends Worker {
         }
         $apiWorker->onMessage = [$this, 'onApiClientMessage'];
         $apiWorker->listen();
+        //Timer::add(60, [$this, 'checkPackageDatas']);
     }
 
+
+    
+    
     /**
      * 客户端发来消息时
      * @param $connection
@@ -167,6 +173,14 @@ class UdpWorker extends Worker {
                     case 'send_client_all':
                         $this->sendClientAll($requestData['data'], $requestData['device'] ?? 'all');
                         break;
+                    case 'test_send':
+                        $word = 'testmynameislisanok123';
+                        $this->sendClientAll($word, $requestData['device'] ?? 'all');
+                        break;
+                    case 'send_file':
+                        $word = base64_encode(file_get_contents(Config::get('test_send_file')));
+                        $this->sendClientAll($word, $requestData['device'] ?? 'all');
+                        break;
                 }
                 return $connection->send(ApiResponse::resSuccess());
             default :
@@ -180,7 +194,6 @@ class UdpWorker extends Worker {
      * @param array $data
      */
     private function sendUdpData($addr, $data) {
-        
         if(empty($addr)){
             return;
         }
@@ -204,7 +217,22 @@ class UdpWorker extends Worker {
         if(!isset($this->_udpConnections[$addr])){
             $this->_udpConnections[$addr] = $udpConnection;
         }
-        $udpConnection->send(SocketResponse::resSuccess(['data' => $data]));
+        //拆包
+        $packages = $this->splitPackage($data);
+        if($packages === null){
+             return;
+        }
+        if(!is_array($packages)){
+            $udpConnection->connect();
+            return $udpConnection->send($packages);
+        }
+        $packageCount = count($packages);
+        foreach ($packages as $k => $package) {
+            $udpConnection->connect();
+            usleep(2000);
+            $udpConnection->send($package);
+            Util::echoText('发送进度：'. ($k + 1) . '/' .$packageCount );
+        }
     }
 
     public function sendClient($client_id, $data) {

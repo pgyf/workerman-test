@@ -14,7 +14,7 @@ use core\common\SocketResponse;
  * 给udp客户端发送消息
  * @author phpyii
  */
-class TcpWorker extends Worker {
+class TcpWorker extends BaseWorker {
 
     /**
      * Name of the worker processes.

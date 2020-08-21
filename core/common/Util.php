@@ -2,7 +2,6 @@
 
 namespace core\common;
 
-
 /**
  * Description of Util
  *
@@ -20,15 +19,13 @@ class Util {
             for ($i = $start; $i <= $stop; $i++) {
                 yield $i => $i * $i;
             }
-        }
-        else {
+        } else {
             for ($i = $start; $i >= $stop; $i--) {
                 yield $i => $i * $i; //迭代生成数组： 键=》值
             }
         }
     }
-    
-    
+
     /**
      * 返回数据
      * @param type $data
@@ -83,7 +80,7 @@ class Util {
         $result = strtoupper($string);
         return $result;
     }
-    
+
     /**
      * 加
      * @param float $left_operand
@@ -94,7 +91,6 @@ class Util {
     public static function calcAdd($left_operand, $right_operand, $scale = 2) {
         return bcadd($left_operand, $right_operand, $scale);
     }
-    
 
     /**
      * 减
@@ -137,7 +133,7 @@ class Util {
      * @return float
      */
     public static function calcDivided($leftOperand, $divided, $scale = 2) {
-        if($divided >= 1){
+        if ($divided >= 1) {
             return $leftOperand;
         }
         if ($divided < 0) {
@@ -145,8 +141,7 @@ class Util {
         }
         return self::calcMul($leftOperand, $divided, $scale);
     }
-    
-    
+
     /**
      * 转json字符串为数组
      * @param string $json
@@ -154,7 +149,7 @@ class Util {
      * @return array
      */
     public static function jsonDecode($json, $default = []) {
-        if(!empty($json)){
+        if (!empty($json)) {
             try {
                 return json_decode($json, true);
             } catch (\Exception $exc) {
@@ -170,7 +165,16 @@ class Util {
      * @param string $br
      */
     public static function echoText($txt, $br = PHP_EOL) {
-        echo   '[' . date('Y-m-d H:i:s') . ']' . '-' . $txt . $br;
+        echo '[' . date('Y-m-d H:i:s') . ']' . '-' . $txt . $br;
     }
-    
+
+    /**
+     * 是否base64
+     * @param type $str
+     * @return type
+     */
+    public static function isBase64($str) {
+        return $str == base64_encode(base64_decode($str)) ? true : false;
+    }
+
 }

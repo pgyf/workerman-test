@@ -8,4 +8,6 @@ return [
         'ssl' => false,
     ],
     'client_port' => 17000, //客户端udp端口
+    'test_send_file' => 'D:/phpStudy_64.zip',
+    'test_save_file' => 'D:/temp',
 ];

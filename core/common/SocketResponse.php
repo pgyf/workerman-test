@@ -13,7 +13,7 @@ use Workerman\Protocols\Http\Response;
 /**
  * Description of Response
  *
- * @author lyf
+ * @author phpyii
  */
 class SocketResponse {
 
